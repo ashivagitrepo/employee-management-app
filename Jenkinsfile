@@ -87,8 +87,15 @@ pipeline {
                 }
             }
         }
-                sh '''
 
+        stage('Deploy') {
+            steps {
+                sh '''
+                    echo "Stopping old application container..."
+                    docker rm -f employee-management || true
+
+                    echo "Pulling latest image from Docker Hub..."
+                    docker pull dockerymal/employee-management:latest
 
                     echo "Starting new application container..."
                     docker run -d \
@@ -102,10 +109,4 @@ pipeline {
             }
         }
     }
-}                    echo "Pulling latest image from Docker Hub..."
-                    docker pull dockerymal/employee-management:latest
-                    echo "Stopping old application container..."
-                    docker rm -f employee-management || true
-        stage('Deploy') {
-            steps {
-
+}
