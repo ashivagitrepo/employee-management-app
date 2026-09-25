@@ -7,9 +7,25 @@ employees = [
     {"id": 2, "name": "Rahul", "role": "Developer"}
 ]
 
+
 @app.route("/")
 def home():
-    return render_template("index.html", employees=employees)
+    search = request.args.get("search", "").strip()
+
+    if search:
+        filtered_employees = [
+            employee for employee in employees
+            if search.lower() in employee["name"].lower()
+        ]
+    else:
+        filtered_employees = employees
+
+    return render_template(
+        "index.html",
+        employees=filtered_employees,
+        search=search
+    )
+
 
 @app.route("/add", methods=["GET", "POST"])
 def add_employee():
@@ -28,6 +44,7 @@ def add_employee():
         return redirect("/")
 
     return render_template("add_employee.html")
+
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000)
