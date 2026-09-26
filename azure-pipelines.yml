@@ -57,3 +57,14 @@ steps:
       -Dsonar.exclusions="venv/**,**/__pycache__/**"
   displayName: 'Run SonarQube Analysis'
   condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/main'), ne(variables['Build.Reason'], 'PullRequest'))
+
+# Trivy security scan
+- task: trivy@2
+  displayName: 'Run Trivy Security Scan'
+  inputs:
+    type: 'filesystem'
+    target: '.'
+    scanners: 'vuln,misconfig,secret'
+    severities: 'HIGH,CRITICAL'
+    ignoreUnfixed: false
+    exitCode: '1'
