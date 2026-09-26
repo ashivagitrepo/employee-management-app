@@ -16,10 +16,19 @@ variables:
 
 steps:
 
+# ============================================================
+# 1. Use Python
+# ============================================================
+
 - task: UsePythonVersion@0
   displayName: 'Use Python $(pythonVersion)'
   inputs:
     versionSpec: '$(pythonVersion)'
+
+
+# ============================================================
+# 2. Install Python dependencies
+# ============================================================
 
 - script: |
     python --version
@@ -27,12 +36,21 @@ steps:
     pip install -r requirements.txt
   displayName: 'Install dependencies'
 
+
+# ============================================================
+# 3. Application syntax test
+# ============================================================
+
 - script: |
     python -m py_compile app.py
     echo "Application syntax test passed."
   displayName: 'Run application test'
 
-# Install SonarScanner CLI
+
+# ============================================================
+# 4. Install SonarScanner CLI
+# ============================================================
+
 - script: |
     curl -sSLo sonar-scanner.zip \
       https://binaries.sonarsource.com/Distribution/sonar-scanner-cli/sonar-scanner-cli-8.1.0.6389-linux-x64.zip
@@ -44,7 +62,11 @@ steps:
     $(Agent.TempDirectory)/sonar-scanner/bin/sonar-scanner --version
   displayName: 'Install SonarScanner CLI'
 
-# SonarQube analysis
+
+# ============================================================
+# 5. SonarQube analysis
+# ============================================================
+
 - script: |
     export SONAR_HOST_URL="http://20.124.249.106:9000"
 
@@ -56,15 +78,28 @@ steps:
       -Dsonar.sources="." \
       -Dsonar.exclusions="venv/**,**/__pycache__/**"
   displayName: 'Run SonarQube Analysis'
-  condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/main'), ne(variables['Build.Reason'], 'PullRequest'))
+  condition: and(
+    succeeded(),
+    eq(variables['Build.SourceBranch'], 'refs/heads/main'),
+    ne(variables['Build.Reason'], 'PullRequest')
+  )
 
-# Install Trivy
+
+# ============================================================
+# 6. Install Trivy
+# ============================================================
+
 - script: |
     curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b $(Agent.TempDirectory)/trivy
+
     $(Agent.TempDirectory)/trivy/trivy --version
   displayName: 'Install Trivy'
 
-# Trivy filesystem security scan
+
+# ============================================================
+# 7. Trivy filesystem security scan
+# ============================================================
+
 - script: |
     $(Agent.TempDirectory)/trivy/trivy filesystem \
       --scanners vuln,misconfig,secret \
@@ -73,14 +108,29 @@ steps:
       --exit-code 0 \
       .
   displayName: 'Run Trivy Security Scan'
-# Build Docker image
+
+
+# ============================================================
+# 8. Build Docker image
+# ============================================================
+
 - script: |
-    docker build -t employee-management:$(Build.BuildId) .
-    docker tag employee-management:$(Build.BuildId) dockerymal/employee-management:$(Build.BuildId)
+    docker build \
+      -t employee-management:$(Build.BuildId) \
+      .
+
+    docker tag \
+      employee-management:$(Build.BuildId) \
+      dockerymal/employee-management:$(Build.BuildId)
 
     docker images
   displayName: 'Build Docker Image'
-# Trivy Docker image security scan
+
+
+# ============================================================
+# 9. Trivy Docker image security scan
+# ============================================================
+
 - script: |
     $(Agent.TempDirectory)/trivy/trivy image \
       --scanners vuln,misconfig,secret \
@@ -89,7 +139,12 @@ steps:
       --exit-code 0 \
       employee-management:$(Build.BuildId)
   displayName: 'Scan Docker Image with Trivy'
-# Push Docker image to Docker Hub
+
+
+# ============================================================
+# 10. Push Docker image to Docker Hub
+# ============================================================
+
 - task: Docker@2
   displayName: 'Push Docker Image to Docker Hub'
   inputs:
@@ -98,3 +153,32 @@ steps:
     containerRegistry: 'dockerhub-employee-management'
     tags: |
       $(Build.BuildId)
+
+
+# ============================================================
+# 11. Deploy exact Docker image to DEV
+# ============================================================
+
+- task: SSH@0
+  displayName: 'Deploy to DEV'
+  inputs:
+    sshEndpoint: 'azure-vm-dev-ssh'
+    runOptions: 'commands'
+    commands: |
+      echo "Deploying Employee Management Build $(Build.BuildId) to DEV"
+
+      docker pull dockerymal/employee-management:$(Build.BuildId)
+
+      docker stop employee-management-dev || true
+
+      docker rm employee-management-dev || true
+
+      docker run -d \
+        --name employee-management-dev \
+        -p 5001:5000 \
+        --restart unless-stopped \
+        dockerymal/employee-management:$(Build.BuildId)
+
+      echo "DEV deployment completed."
+
+      docker ps
