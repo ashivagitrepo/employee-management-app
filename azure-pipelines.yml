@@ -130,7 +130,7 @@ steps:
       $(Build.BuildId)
 
 # ============================================================
-# 11. Deploy to DEV Azure VM
+# 11. Deploy to DEV
 # ============================================================
 
 - task: SSH@0
@@ -145,4 +145,22 @@ steps:
       docker rm employee-management-dev || true
       docker run -d --name employee-management-dev -p 5001:5000 --restart unless-stopped dockerymal/employee-management:$(Build.BuildId)
       echo "DEV deployment completed."
+      docker ps
+
+# ============================================================
+# 12. Deploy to QA
+# ============================================================
+
+- task: SSH@0
+  displayName: 'Deploy to QA'
+  inputs:
+    sshEndpoint: 'azure-vm-dev-ssh'
+    runOptions: 'commands'
+    commands: |
+      echo "Deploying Employee Management Build $(Build.BuildId) to QA"
+      docker pull dockerymal/employee-management:$(Build.BuildId)
+      docker stop employee-management-qa || true
+      docker rm employee-management-qa || true
+      docker run -d --name employee-management-qa -p 5002:5000 --restart unless-stopped dockerymal/employee-management:$(Build.BuildId)
+      echo "QA deployment completed."
       docker ps
