@@ -87,3 +87,12 @@ steps:
       --exit-code 0 \
       employee-management:$(Build.BuildId)
   displayName: 'Scan Docker Image with Trivy'
+# Push Docker image to Docker Hub
+- task: Docker@2
+  displayName: 'Push Docker Image to Docker Hub'
+  inputs:
+    command: 'push'
+    repository: 'dockerymal/employee-management'
+    containerRegistry: 'dockerhub-employee-management'
+    tags: |
+      $(Build.BuildId)
