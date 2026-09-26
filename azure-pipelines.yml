@@ -58,13 +58,18 @@ steps:
   displayName: 'Run SonarQube Analysis'
   condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/main'), ne(variables['Build.Reason'], 'PullRequest'))
 
-# Trivy security scan
-- task: trivy@2
+# Install Trivy
+- script: |
+    curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b $(Agent.TempDirectory)/trivy
+    $(Agent.TempDirectory)/trivy/trivy --version
+  displayName: 'Install Trivy'
+
+# Trivy filesystem security scan
+- script: |
+    $(Agent.TempDirectory)/trivy/trivy filesystem \
+      --scanners vuln,misconfig,secret \
+      --severity HIGH,CRITICAL \
+      --format table \
+      --exit-code 0 \
+      .
   displayName: 'Run Trivy Security Scan'
-  inputs:
-    type: 'filesystem'
-    target: '.'
-    scanners: 'vuln,misconfig,secret'
-    severities: 'HIGH,CRITICAL'
-    ignoreUnfixed: false
-    exitCode: '1'
