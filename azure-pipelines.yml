@@ -45,6 +45,7 @@ steps:
     cliSources: '.'
     extraProperties: |
       sonar.exclusions=venv/**,**/__pycache__/**
+      sonar.branch.name=
 
 - task: SonarQubeAnalyze@8
   displayName: 'Run SonarQube Analysis'
