@@ -17,14 +17,13 @@ variables:
 steps:
 
 # ============================================================
-# 1. Use Python
+# 1. Install Python
 # ============================================================
 
 - task: UsePythonVersion@0
   displayName: 'Use Python $(pythonVersion)'
   inputs:
     versionSpec: '$(pythonVersion)'
-
 
 # ============================================================
 # 2. Install Python dependencies
@@ -36,9 +35,8 @@ steps:
     pip install -r requirements.txt
   displayName: 'Install dependencies'
 
-
 # ============================================================
-# 3. Application syntax test
+# 3. Application test
 # ============================================================
 
 - script: |
@@ -46,22 +44,16 @@ steps:
     echo "Application syntax test passed."
   displayName: 'Run application test'
 
-
 # ============================================================
-# 4. Install SonarScanner CLI
+# 4. Install SonarScanner
 # ============================================================
 
 - script: |
-    curl -sSLo sonar-scanner.zip \
-      https://binaries.sonarsource.com/Distribution/sonar-scanner-cli/sonar-scanner-cli-8.1.0.6389-linux-x64.zip
-
+    curl -sSLo sonar-scanner.zip https://binaries.sonarsource.com/Distribution/sonar-scanner-cli/sonar-scanner-cli-8.1.0.6389-linux-x64.zip
     unzip -q sonar-scanner.zip
-
     mv sonar-scanner-8.1.0.6389-linux-x64 $(Agent.TempDirectory)/sonar-scanner
-
     $(Agent.TempDirectory)/sonar-scanner/bin/sonar-scanner --version
-  displayName: 'Install SonarScanner CLI'
-
+  displayName: 'Install SonarScanner'
 
 # ============================================================
 # 5. SonarQube analysis
@@ -69,7 +61,6 @@ steps:
 
 - script: |
     export SONAR_HOST_URL="http://20.124.249.106:9000"
-
     $(Agent.TempDirectory)/sonar-scanner/bin/sonar-scanner \
       -Dsonar.host.url="$SONAR_HOST_URL" \
       -Dsonar.token="$(SONAR_TOKEN)" \
@@ -78,8 +69,7 @@ steps:
       -Dsonar.sources="." \
       -Dsonar.exclusions="venv/**,**/__pycache__/**"
   displayName: 'Run SonarQube Analysis'
-    condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/main'), ne(variables['Build.Reason'], 'PullRequest'))
-
+  condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/main'), ne(variables['Build.Reason'], 'PullRequest'))
 
 # ============================================================
 # 6. Install Trivy
@@ -87,10 +77,8 @@ steps:
 
 - script: |
     curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b $(Agent.TempDirectory)/trivy
-
     $(Agent.TempDirectory)/trivy/trivy --version
   displayName: 'Install Trivy'
-
 
 # ============================================================
 # 7. Trivy filesystem security scan
@@ -105,26 +93,18 @@ steps:
       .
   displayName: 'Run Trivy Security Scan'
 
-
 # ============================================================
 # 8. Build Docker image
 # ============================================================
 
 - script: |
-    docker build \
-      -t employee-management:$(Build.BuildId) \
-      .
-
-    docker tag \
-      employee-management:$(Build.BuildId) \
-      dockerymal/employee-management:$(Build.BuildId)
-
+    docker build -t employee-management:$(Build.BuildId) .
+    docker tag employee-management:$(Build.BuildId) dockerymal/employee-management:$(Build.BuildId)
     docker images
   displayName: 'Build Docker Image'
 
-
 # ============================================================
-# 9. Trivy Docker image security scan
+# 9. Scan Docker image with Trivy
 # ============================================================
 
 - script: |
@@ -135,7 +115,6 @@ steps:
       --exit-code 0 \
       employee-management:$(Build.BuildId)
   displayName: 'Scan Docker Image with Trivy'
-
 
 # ============================================================
 # 10. Push Docker image to Docker Hub
@@ -150,9 +129,8 @@ steps:
     tags: |
       $(Build.BuildId)
 
-
 # ============================================================
-# 11. Deploy exact Docker image to DEV
+# 11. Deploy to DEV Azure VM
 # ============================================================
 
 - task: SSH@0
@@ -162,19 +140,9 @@ steps:
     runOptions: 'commands'
     commands: |
       echo "Deploying Employee Management Build $(Build.BuildId) to DEV"
-
       docker pull dockerymal/employee-management:$(Build.BuildId)
-
       docker stop employee-management-dev || true
-
       docker rm employee-management-dev || true
-
-      docker run -d \
-        --name employee-management-dev \
-        -p 5001:5000 \
-        --restart unless-stopped \
-        dockerymal/employee-management:$(Build.BuildId)
-
+      docker run -d --name employee-management-dev -p 5001:5000 --restart unless-stopped dockerymal/employee-management:$(Build.BuildId)
       echo "DEV deployment completed."
-
       docker ps
