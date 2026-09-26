@@ -164,3 +164,20 @@ steps:
       docker run -d --name employee-management-qa -p 5002:5000 --restart unless-stopped dockerymal/employee-management:$(Build.BuildId)
       echo "QA deployment completed."
       docker ps
+      # ============================================================
+# 13. Deploy to PROD
+# ============================================================
+
+- task: SSH@0
+  displayName: 'Deploy to PROD'
+  inputs:
+    sshEndpoint: 'azure-vm-dev-ssh'
+    runOptions: 'commands'
+    commands: |
+      echo "Deploying Employee Management Build $(Build.BuildId) to PROD"
+      docker pull dockerymal/employee-management:$(Build.BuildId)
+      docker stop employee-management-prod || true
+      docker rm employee-management-prod || true
+      docker run -d --name employee-management-prod -p 5003:5000 --restart unless-stopped dockerymal/employee-management:$(Build.BuildId)
+      echo "PROD deployment completed."
+      docker ps
