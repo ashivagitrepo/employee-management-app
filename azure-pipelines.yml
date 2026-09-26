@@ -164,7 +164,7 @@ steps:
       docker run -d --name employee-management-qa -p 5002:5000 --restart unless-stopped dockerymal/employee-management:$(Build.BuildId)
       echo "QA deployment completed."
       docker ps
-      # ============================================================
+
 # ============================================================
 # 13. Deploy to PROD
 # ============================================================
@@ -176,23 +176,8 @@ steps:
     runOptions: 'commands'
     commands: |
       echo "Deploying Employee Management Build $(Build.BuildId) to PROD"
-
       docker pull dockerymal/employee-management:$(Build.BuildId)
-
-      if docker ps -a --format '{{.Names}}' | grep -q '^employee-management-prod$'; then
-        echo "Existing PROD container found. Stopping it..."
-        docker stop employee-management-prod
-        docker rm employee-management-prod
-      else
-        echo "No existing PROD container found. Creating it..."
-      fi
-
-      docker run -d \
-        --name employee-management-prod \
-        -p 5003:5000 \
-        --restart unless-stopped \
-        dockerymal/employee-management:$(Build.BuildId)
-
+      docker rm -f employee-management-prod 2>/dev/null || true
+      docker run -d --name employee-management-prod -p 5003:5000 --restart unless-stopped dockerymal/employee-management:$(Build.BuildId)
       echo "PROD deployment completed."
-
       docker ps --filter "name=employee-management-prod"
