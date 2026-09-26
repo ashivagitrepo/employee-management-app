@@ -78,3 +78,12 @@ steps:
     docker build -t employee-management:$(Build.BuildId) .
     docker images
   displayName: 'Build Docker Image'
+# Trivy Docker image security scan
+- script: |
+    $(Agent.TempDirectory)/trivy/trivy image \
+      --scanners vuln,misconfig,secret \
+      --severity HIGH,CRITICAL \
+      --format table \
+      --exit-code 0 \
+      employee-management:$(Build.BuildId)
+  displayName: 'Scan Docker Image with Trivy'
