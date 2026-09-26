@@ -76,6 +76,8 @@ steps:
 # Build Docker image
 - script: |
     docker build -t employee-management:$(Build.BuildId) .
+    docker tag employee-management:$(Build.BuildId) dockerymal/employee-management:$(Build.BuildId)
+
     docker images
   displayName: 'Build Docker Image'
 # Trivy Docker image security scan
