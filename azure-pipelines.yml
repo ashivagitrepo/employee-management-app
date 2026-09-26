@@ -1,0 +1,59 @@
+trigger:
+  branches:
+    include:
+      - main
+
+pr:
+  branches:
+    include:
+      - main
+
+pool:
+  vmImage: 'ubuntu-latest'
+
+variables:
+  pythonVersion: '3.13'
+
+steps:
+
+- task: UsePythonVersion@0
+  displayName: 'Use Python $(pythonVersion)'
+  inputs:
+    versionSpec: '$(pythonVersion)'
+
+- script: |
+    python --version
+    python -m pip install --upgrade pip
+    pip install -r requirements.txt
+  displayName: 'Install dependencies'
+
+- script: |
+    python -m py_compile app.py
+    echo "Application syntax test passed."
+  displayName: 'Run application test'
+
+# SonarQube analysis only on main branch
+- task: SonarQubePrepare@8
+  displayName: 'Prepare SonarQube Analysis'
+  condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/main'))
+  inputs:
+    SonarQube: 'SonarQube'
+    scannerMode: 'CLI'
+    configMode: 'manual'
+    cliProjectKey: 'Employee-Management'
+    cliProjectName: 'Employee-Management'
+    cliSources: '.'
+    extraProperties: |
+      sonar.exclusions=venv/**,**/__pycache__/**
+
+- task: SonarQubeAnalyze@8
+  displayName: 'Run SonarQube Analysis'
+  condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/main'))
+  inputs:
+    jdkversion: 'JAVA_HOME_17_X64'
+
+- task: SonarQubePublish@8
+  displayName: 'Publish SonarQube Quality Gate'
+  condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/main'))
+  inputs:
+    pollingTimeoutSec: '300'
