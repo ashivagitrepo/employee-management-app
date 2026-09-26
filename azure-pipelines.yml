@@ -32,10 +32,10 @@ steps:
     echo "Application syntax test passed."
   displayName: 'Run application test'
 
-# SonarQube analysis only on main branch
+# SonarQube analysis only on direct main branch builds
 - task: SonarQubePrepare@8
   displayName: 'Prepare SonarQube Analysis'
-  condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/main'))
+  condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/main'), ne(variables['Build.Reason'], 'PullRequest'))
   inputs:
     SonarQube: 'SonarQube'
     scannerMode: 'CLI'
@@ -48,12 +48,12 @@ steps:
 
 - task: SonarQubeAnalyze@8
   displayName: 'Run SonarQube Analysis'
-  condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/main'))
+  condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/main'), ne(variables['Build.Reason'], 'PullRequest'))
   inputs:
     jdkversion: 'JAVA_HOME_17_X64'
 
 - task: SonarQubePublish@8
   displayName: 'Publish SonarQube Quality Gate'
-  condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/main'))
+  condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/main'), ne(variables['Build.Reason'], 'PullRequest'))
   inputs:
     pollingTimeoutSec: '300'
