@@ -73,3 +73,8 @@ steps:
       --exit-code 0 \
       .
   displayName: 'Run Trivy Security Scan'
+# Build Docker image
+- script: |
+    docker build -t employee-management:$(Build.BuildId) .
+    docker images
+  displayName: 'Build Docker Image'
