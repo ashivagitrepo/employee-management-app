@@ -31,3 +31,28 @@ steps:
     python -m py_compile app.py
     echo "Application syntax test passed."
   displayName: 'Run application test'
+
+# Prepare SonarQube analysis
+- task: SonarQubePrepare@8
+  displayName: 'Prepare SonarQube Analysis'
+  inputs:
+    SonarQube: 'SonarQube'
+    scannerMode: 'CLI'
+    configMode: 'manual'
+    cliProjectKey: 'Employee-Management'
+    cliProjectName: 'Employee-Management'
+    cliSources: '.'
+    extraProperties: |
+      sonar.exclusions=venv/**,**/__pycache__/**
+
+# Run SonarQube analysis
+- task: SonarQubeAnalyze@8
+  displayName: 'Run SonarQube Analysis'
+  inputs:
+    jdkversion: 'JAVA_HOME_17_X64'
+
+# Publish Quality Gate result
+- task: SonarQubePublish@8
+  displayName: 'Publish SonarQube Quality Gate'
+  inputs:
+    pollingTimeoutSec: '300'
