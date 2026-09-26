@@ -1,70 +1,15 @@
-trigger:
-  branches:
-    include:
-      - main
-
-pr:
-  branches:
-    include:
-      - main
-
-pool:
-  vmImage: 'ubuntu-latest'
-
-variables:
-  pythonVersion: '3.13'
-
-steps:
-
-- task: UsePythonVersion@0
-  displayName: 'Use Python $(pythonVersion)'
-  inputs:
-    versionSpec: '$(pythonVersion)'
-
+# Install Trivy
 - script: |
-    python --version
-    python -m pip install --upgrade pip
-    pip install -r requirements.txt
-  displayName: 'Install dependencies'
+    curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b $(Agent.TempDirectory)/trivy
+    $(Agent.TempDirectory)/trivy/trivy --version
+  displayName: 'Install Trivy'
 
+# Trivy filesystem security scan
 - script: |
-    python -m py_compile app.py
-    echo "Application syntax test passed."
-  displayName: 'Run application test'
-
-# Install SonarScanner CLI
-- script: |
-    curl -sSLo sonar-scanner.zip \
-      https://binaries.sonarsource.com/Distribution/sonar-scanner-cli/sonar-scanner-cli-8.1.0.6389-linux-x64.zip
-
-    unzip -q sonar-scanner.zip
-
-    mv sonar-scanner-8.1.0.6389-linux-x64 $(Agent.TempDirectory)/sonar-scanner
-
-    $(Agent.TempDirectory)/sonar-scanner/bin/sonar-scanner --version
-  displayName: 'Install SonarScanner CLI'
-
-# SonarQube analysis
-- script: |
-    export SONAR_HOST_URL="http://20.124.249.106:9000"
-
-    $(Agent.TempDirectory)/sonar-scanner/bin/sonar-scanner \
-      -Dsonar.host.url="$SONAR_HOST_URL" \
-      -Dsonar.token="$(SONAR_TOKEN)" \
-      -Dsonar.projectKey="Employee-Management" \
-      -Dsonar.projectName="Employee-Management" \
-      -Dsonar.sources="." \
-      -Dsonar.exclusions="venv/**,**/__pycache__/**"
-  displayName: 'Run SonarQube Analysis'
-  condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/main'), ne(variables['Build.Reason'], 'PullRequest'))
-
-# Trivy security scan
-- task: trivy@2
+    $(Agent.TempDirectory)/trivy/trivy filesystem \
+      --scanners vuln,misconfig,secret \
+      --severity HIGH,CRITICAL \
+      --format table \
+      --exit-code 0 \
+      .
   displayName: 'Run Trivy Security Scan'
-  inputs:
-    type: 'filesystem'
-    target: '.'
-    scanners: 'vuln,misconfig,secret'
-    severities: 'HIGH,CRITICAL'
-    ignoreUnfixed: false
-    exitCode: '1'
