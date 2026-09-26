@@ -32,9 +32,10 @@ steps:
     echo "Application syntax test passed."
   displayName: 'Run application test'
 
-# Prepare SonarQube analysis
+# SonarQube analysis only on main branch
 - task: SonarQubePrepare@8
   displayName: 'Prepare SonarQube Analysis'
+  condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/main'))
   inputs:
     SonarQube: 'SonarQube'
     scannerMode: 'CLI'
@@ -45,14 +46,14 @@ steps:
     extraProperties: |
       sonar.exclusions=venv/**,**/__pycache__/**
 
-# Run SonarQube analysis
 - task: SonarQubeAnalyze@8
   displayName: 'Run SonarQube Analysis'
+  condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/main'))
   inputs:
     jdkversion: 'JAVA_HOME_17_X64'
 
-# Publish Quality Gate result
 - task: SonarQubePublish@8
   displayName: 'Publish SonarQube Quality Gate'
+  condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/main'))
   inputs:
     pollingTimeoutSec: '300'
