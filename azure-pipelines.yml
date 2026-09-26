@@ -32,28 +32,28 @@ steps:
     echo "Application syntax test passed."
   displayName: 'Run application test'
 
-# SonarQube analysis only on direct main branch builds
-- task: SonarQubePrepare@8
-  displayName: 'Prepare SonarQube Analysis'
-  condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/main'), ne(variables['Build.Reason'], 'PullRequest'))
-  inputs:
-    SonarQube: 'SonarQube'
-    scannerMode: 'CLI'
-    configMode: 'manual'
-    cliProjectKey: 'Employee-Management'
-    cliProjectName: 'Employee-Management'
-    cliSources: '.'
-    extraProperties: |
-      sonar.exclusions=venv/**,**/__pycache__/**
+# Install SonarScanner CLI
+- script: |
+    curl -sSLo sonar-scanner.zip \
+      https://binaries.sonarsource.com/Distribution/sonar-scanner-cli/sonar-scanner-cli-8.1.0.6389-linux-x64.zip
 
-- task: SonarQubeAnalyze@8
+    unzip -q sonar-scanner.zip
+
+    mv sonar-scanner-8.1.0.6389-linux-x64 $(Agent.TempDirectory)/sonar-scanner
+
+    $(Agent.TempDirectory)/sonar-scanner/bin/sonar-scanner --version
+  displayName: 'Install SonarScanner CLI'
+
+# SonarQube analysis
+- script: |
+    export SONAR_HOST_URL="http://20.124.249.106:9000"
+
+    $(Agent.TempDirectory)/sonar-scanner/bin/sonar-scanner \
+      -Dsonar.host.url="$SONAR_HOST_URL" \
+      -Dsonar.token="$(SONAR_TOKEN)" \
+      -Dsonar.projectKey="Employee-Management" \
+      -Dsonar.projectName="Employee-Management" \
+      -Dsonar.sources="." \
+      -Dsonar.exclusions="venv/**,**/__pycache__/**"
   displayName: 'Run SonarQube Analysis'
   condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/main'), ne(variables['Build.Reason'], 'PullRequest'))
-  inputs:
-    jdkversion: 'JAVA_HOME_17_X64'
-
-- task: SonarQubePublish@8
-  displayName: 'Publish SonarQube Quality Gate'
-  condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/main'), ne(variables['Build.Reason'], 'PullRequest'))
-  inputs:
-    pollingTimeoutSec: '300'
