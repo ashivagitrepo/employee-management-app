@@ -11,12 +11,22 @@ variables:
 
 stages:
 
+# ============================================================
+# BUILD + SECURITY
+# ============================================================
+
 - stage: Build
   displayName: Build and Security
+
   jobs:
   - job: BuildAndScan
     displayName: Build, SonarQube, Trivy and Docker
+
     steps:
+
+    # --------------------------------------------------------
+    # Python
+    # --------------------------------------------------------
 
     - task: UsePythonVersion@0
       displayName: Use Python
@@ -29,10 +39,20 @@ stages:
         pip install -r requirements.txt
       displayName: Install dependencies
 
+
+    # --------------------------------------------------------
+    # Application Test
+    # --------------------------------------------------------
+
     - script: |
         python -m py_compile app.py
         echo "Application syntax test passed."
       displayName: Run application test
+
+
+    # --------------------------------------------------------
+    # Install SonarQube Scanner
+    # --------------------------------------------------------
 
     - script: |
         curl -sSLo sonar-scanner.zip https://binaries.sonarsource.com/Distribution/sonar-scanner-cli/sonar-scanner-cli-8.1.0.6389-linux-x64.zip
@@ -41,8 +61,14 @@ stages:
         $(Agent.TempDirectory)/sonar-scanner/bin/sonar-scanner --version
       displayName: Install SonarScanner
 
+
+    # --------------------------------------------------------
+    # SonarQube Analysis
+    # --------------------------------------------------------
+
     - script: |
         export SONAR_HOST_URL="http://20.124.249.106:9000"
+
         $(Agent.TempDirectory)/sonar-scanner/bin/sonar-scanner \
           -Dsonar.host.url="$SONAR_HOST_URL" \
           -Dsonar.token="$(SONAR_TOKEN)" \
@@ -53,10 +79,21 @@ stages:
       displayName: Run SonarQube Analysis
       condition: "and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/main'), ne(variables['Build.Reason'], 'PullRequest'))"
 
+
+    # --------------------------------------------------------
+    # Install Trivy
+    # --------------------------------------------------------
+
     - script: |
         curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b $(Agent.TempDirectory)/trivy
+
         $(Agent.TempDirectory)/trivy/trivy --version
       displayName: Install Trivy
+
+
+    # --------------------------------------------------------
+    # Trivy Filesystem Scan
+    # --------------------------------------------------------
 
     - script: |
         $(Agent.TempDirectory)/trivy/trivy filesystem \
@@ -66,11 +103,25 @@ stages:
           --exit-code 0 .
       displayName: Run Trivy Security Scan
 
+
+    # --------------------------------------------------------
+    # Build Docker Image
+    # --------------------------------------------------------
+
     - script: |
         docker build -t employee-management:$(Build.BuildId) .
-        docker tag employee-management:$(Build.BuildId) dockerymal/employee-management:$(Build.BuildId)
+
+        docker tag \
+          employee-management:$(Build.BuildId) \
+          dockerymal/employee-management:$(Build.BuildId)
+
         docker images
       displayName: Build Docker Image
+
+
+    # --------------------------------------------------------
+    # Trivy Docker Image Scan
+    # --------------------------------------------------------
 
     - script: |
         $(Agent.TempDirectory)/trivy/trivy image \
@@ -81,90 +132,220 @@ stages:
           employee-management:$(Build.BuildId)
       displayName: Scan Docker Image with Trivy
 
+
+    # --------------------------------------------------------
+    # Push Docker Image to Docker Hub
+    # --------------------------------------------------------
+
     - task: Docker@2
       displayName: Push Docker Image to Docker Hub
+
       inputs:
         command: push
         repository: dockerymal/employee-management
         containerRegistry: dockerhub-employee-management
+
         tags: |
           $(Build.BuildId)
 
 
+# ============================================================
+# DEV DEPLOYMENT
+# ============================================================
+
 - stage: DEV
   displayName: Deploy to DEV
+
   dependsOn: Build
+
   condition: succeeded()
 
   jobs:
   - job: DeployDEV
     displayName: Deploy Employee Management to DEV
+
     steps:
 
     - task: SSH@0
       displayName: Deploy to DEV
+
       inputs:
         sshEndpoint: azure-vm-dev-ssh
         runOptions: commands
+
         commands: |
-          echo "Deploying Employee Management Build $(Build.BuildId) to DEV"
+
+          echo "========================================="
+          echo "Deploying Employee Management to DEV"
+          echo "Build ID: $(Build.BuildId)"
+          echo "========================================="
+
+          echo "Pulling Docker image..."
+
           docker pull dockerymal/employee-management:$(Build.BuildId)
-          docker stop employee-management-dev || true
-          docker rm employee-management-dev || true
-          docker run -d --name employee-management-dev -p 5001:5000 --restart unless-stopped dockerymal/employee-management:$(Build.BuildId)
+
+          echo "Checking existing DEV container..."
+
+          if docker ps -a --format '{{.Names}}' | grep -q '^employee-management-dev$'; then
+            echo "Existing DEV container found."
+            echo "Removing existing DEV container..."
+            docker rm -f employee-management-dev
+          else
+            echo "No existing DEV container found."
+          fi
+
+          echo "Starting new DEV container..."
+
+          docker run -d \
+            --name employee-management-dev \
+            -p 5001:5000 \
+            --restart unless-stopped \
+            dockerymal/employee-management:$(Build.BuildId)
+
           echo "DEV deployment completed."
+
+          echo "DEV container status:"
+
           docker ps --filter "name=employee-management-dev"
 
+          echo "========================================="
+          echo "DEV deployment successful"
+          echo "========================================="
+
+
+# ============================================================
+# QA DEPLOYMENT
+# ============================================================
 
 - stage: QA
   displayName: Deploy to QA
+
   dependsOn: DEV
+
   condition: succeeded()
 
   jobs:
   - job: DeployQA
     displayName: Deploy Employee Management to QA
+
     steps:
 
     - task: SSH@0
       displayName: Deploy to QA
+
       inputs:
         sshEndpoint: azure-vm-dev-ssh
         runOptions: commands
+
         commands: |
-          echo "Deploying Employee Management Build $(Build.BuildId) to QA"
+
+          echo "========================================="
+          echo "Deploying Employee Management to QA"
+          echo "Build ID: $(Build.BuildId)"
+          echo "========================================="
+
+          echo "Pulling Docker image..."
+
           docker pull dockerymal/employee-management:$(Build.BuildId)
-          docker stop employee-management-qa || true
-          docker rm employee-management-qa || true
-          docker run -d --name employee-management-qa -p 5002:5000 --restart unless-stopped dockerymal/employee-management:$(Build.BuildId)
+
+          echo "Checking existing QA container..."
+
+          if docker ps -a --format '{{.Names}}' | grep -q '^employee-management-qa$'; then
+            echo "Existing QA container found."
+            echo "Removing existing QA container..."
+            docker rm -f employee-management-qa
+          else
+            echo "No existing QA container found."
+          fi
+
+          echo "Starting new QA container..."
+
+          docker run -d \
+            --name employee-management-qa \
+            -p 5002:5000 \
+            --restart unless-stopped \
+            dockerymal/employee-management:$(Build.BuildId)
+
           echo "QA deployment completed."
+
+          echo "QA container status:"
+
           docker ps --filter "name=employee-management-qa"
 
+          echo "========================================="
+          echo "QA deployment successful"
+          echo "========================================="
+
+
+# ============================================================
+# PROD DEPLOYMENT
+# ============================================================
 
 - stage: PROD
   displayName: Deploy to PROD
+
   dependsOn: QA
+
   condition: succeeded()
 
   jobs:
+
   - deployment: DeployPROD
+
     displayName: Deploy Employee Management to PROD
+
     environment: PROD
 
     strategy:
+
       runOnce:
+
         deploy:
+
           steps:
 
           - task: SSH@0
             displayName: Deploy to PROD
+
             inputs:
               sshEndpoint: azure-vm-dev-ssh
               runOptions: commands
+
               commands: |
-                echo "Deploying Employee Management Build $(Build.BuildId) to PROD"
+
+                echo "========================================="
+                echo "Deploying Employee Management to PROD"
+                echo "Build ID: $(Build.BuildId)"
+                echo "========================================="
+
+                echo "Pulling Docker image..."
+
                 docker pull dockerymal/employee-management:$(Build.BuildId)
-                docker rm -f employee-management-prod 2>/dev/null || true
-                docker run -d --name employee-management-prod -p 5003:5000 --restart unless-stopped dockerymal/employee-management:$(Build.BuildId)
+
+                echo "Checking existing PROD container..."
+
+                if docker ps -a --format '{{.Names}}' | grep -q '^employee-management-prod$'; then
+                  echo "Existing PROD container found."
+                  echo "Removing existing PROD container..."
+                  docker rm -f employee-management-prod
+                else
+                  echo "No existing PROD container found."
+                fi
+
+                echo "Starting new PROD container..."
+
+                docker run -d \
+                  --name employee-management-prod \
+                  -p 5003:5000 \
+                  --restart unless-stopped \
+                  dockerymal/employee-management:$(Build.BuildId)
+
                 echo "PROD deployment completed."
+
+                echo "PROD container status:"
+
                 docker ps --filter "name=employee-management-prod"
+
+                echo "========================================="
+                echo "PROD deployment successful"
+                echo "========================================="
