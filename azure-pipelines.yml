@@ -33,6 +33,11 @@ stages:
       inputs:
         versionSpec: '$(pythonVersion)'
 
+
+    # --------------------------------------------------------
+    # Install Python Dependencies
+    # --------------------------------------------------------
+
     - script: |
         python --version
         python -m pip install --upgrade pip
@@ -51,7 +56,7 @@ stages:
 
 
     # --------------------------------------------------------
-    # Install SonarQube Scanner
+    # Install SonarScanner
     # --------------------------------------------------------
 
     - script: |
@@ -77,6 +82,7 @@ stages:
           -Dsonar.sources="." \
           -Dsonar.exclusions="venv/**,**/__pycache__/**"
       displayName: Run SonarQube Analysis
+
       condition: "and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/main'), ne(variables['Build.Reason'], 'PullRequest'))"
 
 
@@ -105,7 +111,7 @@ stages:
 
 
     # --------------------------------------------------------
-    # Build Docker Image
+    # Docker Build
     # --------------------------------------------------------
 
     - script: |
@@ -174,7 +180,6 @@ stages:
         runOptions: commands
 
         commands: |
-
           echo "========================================="
           echo "Deploying Employee Management to DEV"
           echo "Build ID: $(Build.BuildId)"
@@ -184,29 +189,19 @@ stages:
 
           docker pull dockerymal/employee-management:$(Build.BuildId)
 
-          echo "Checking existing DEV container..."
+          echo "Removing existing DEV container if present..."
 
-          if docker ps -a --format '{{.Names}}' | grep -q '^employee-management-dev$'; then
-            echo "Existing DEV container found."
-            echo "Removing existing DEV container..."
-            docker rm -f employee-management-dev
-          else
-            echo "No existing DEV container found."
-          fi
+          docker rm -f employee-management-dev >/dev/null 2>&1 || echo "No existing DEV container found"
 
-          echo "Starting new DEV container..."
+          echo "Starting DEV container..."
 
-          docker run -d \
-            --name employee-management-dev \
-            -p 5001:5000 \
-            --restart unless-stopped \
-            dockerymal/employee-management:$(Build.BuildId)
+          docker run -d --name employee-management-dev -p 5001:5000 --restart unless-stopped dockerymal/employee-management:$(Build.BuildId)
 
           echo "DEV deployment completed."
 
           echo "DEV container status:"
 
-          docker ps --filter "name=employee-management-dev"
+          docker ps --filter name=employee-management-dev
 
           echo "========================================="
           echo "DEV deployment successful"
@@ -238,7 +233,6 @@ stages:
         runOptions: commands
 
         commands: |
-
           echo "========================================="
           echo "Deploying Employee Management to QA"
           echo "Build ID: $(Build.BuildId)"
@@ -248,29 +242,19 @@ stages:
 
           docker pull dockerymal/employee-management:$(Build.BuildId)
 
-          echo "Checking existing QA container..."
+          echo "Removing existing QA container if present..."
 
-          if docker ps -a --format '{{.Names}}' | grep -q '^employee-management-qa$'; then
-            echo "Existing QA container found."
-            echo "Removing existing QA container..."
-            docker rm -f employee-management-qa
-          else
-            echo "No existing QA container found."
-          fi
+          docker rm -f employee-management-qa >/dev/null 2>&1 || echo "No existing QA container found"
 
-          echo "Starting new QA container..."
+          echo "Starting QA container..."
 
-          docker run -d \
-            --name employee-management-qa \
-            -p 5002:5000 \
-            --restart unless-stopped \
-            dockerymal/employee-management:$(Build.BuildId)
+          docker run -d --name employee-management-qa -p 5002:5000 --restart unless-stopped dockerymal/employee-management:$(Build.BuildId)
 
           echo "QA deployment completed."
 
           echo "QA container status:"
 
-          docker ps --filter "name=employee-management-qa"
+          docker ps --filter name=employee-management-qa
 
           echo "========================================="
           echo "QA deployment successful"
@@ -312,7 +296,6 @@ stages:
               runOptions: commands
 
               commands: |
-
                 echo "========================================="
                 echo "Deploying Employee Management to PROD"
                 echo "Build ID: $(Build.BuildId)"
@@ -322,29 +305,19 @@ stages:
 
                 docker pull dockerymal/employee-management:$(Build.BuildId)
 
-                echo "Checking existing PROD container..."
+                echo "Removing existing PROD container if present..."
 
-                if docker ps -a --format '{{.Names}}' | grep -q '^employee-management-prod$'; then
-                  echo "Existing PROD container found."
-                  echo "Removing existing PROD container..."
-                  docker rm -f employee-management-prod
-                else
-                  echo "No existing PROD container found."
-                fi
+                docker rm -f employee-management-prod >/dev/null 2>&1 || echo "No existing PROD container found"
 
-                echo "Starting new PROD container..."
+                echo "Starting PROD container..."
 
-                docker run -d \
-                  --name employee-management-prod \
-                  -p 5003:5000 \
-                  --restart unless-stopped \
-                  dockerymal/employee-management:$(Build.BuildId)
+                docker run -d --name employee-management-prod -p 5003:5000 --restart unless-stopped dockerymal/employee-management:$(Build.BuildId)
 
                 echo "PROD deployment completed."
 
                 echo "PROD container status:"
 
-                docker ps --filter "name=employee-management-prod"
+                docker ps --filter name=employee-management-prod
 
                 echo "========================================="
                 echo "PROD deployment successful"
