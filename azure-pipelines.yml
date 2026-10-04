@@ -1,7 +1,5 @@
 trigger:
-  branches:
-    include:
-      - main
+  - main
 
 pool:
   vmImage: ubuntu-latest
@@ -12,15 +10,15 @@ variables:
 stages:
 
 # ============================================================
-# BUILD + SECURITY
+# BUILD + SONARQUBE + TRIVY + DOCKER + ACR
 # ============================================================
 
 - stage: Build
   displayName: Build and Security
 
   jobs:
-  - job: BuildAndScan
-    displayName: Build, SonarQube, Trivy and Docker
+  - job: Build
+    displayName: Build Application
 
     steps:
 
@@ -29,296 +27,314 @@ stages:
     # --------------------------------------------------------
 
     - task: UsePythonVersion@0
-      displayName: Use Python
+      displayName: Use Python $(pythonVersion)
       inputs:
         versionSpec: '$(pythonVersion)'
-
-
-    # --------------------------------------------------------
-    # Install Python Dependencies
-    # --------------------------------------------------------
 
     - script: |
         python --version
         python -m pip install --upgrade pip
         pip install -r requirements.txt
-      displayName: Install dependencies
-
+      displayName: Install Python Dependencies
 
     # --------------------------------------------------------
-    # Application Test
+    # Application validation
     # --------------------------------------------------------
 
     - script: |
         python -m py_compile app.py
-        echo "Application syntax test passed."
-      displayName: Run application test
-
+      displayName: Python Syntax Check
 
     # --------------------------------------------------------
-    # Install SonarScanner
+    # SonarQube
     # --------------------------------------------------------
 
     - script: |
-        curl -sSLo sonar-scanner.zip https://binaries.sonarsource.com/Distribution/sonar-scanner-cli/sonar-scanner-cli-8.1.0.6389-linux-x64.zip
-        unzip -q sonar-scanner.zip
-        mv sonar-scanner-8.1.0.6389-linux-x64 $(Agent.TempDirectory)/sonar-scanner
-        $(Agent.TempDirectory)/sonar-scanner/bin/sonar-scanner --version
-      displayName: Install SonarScanner
+        echo "Installing SonarScanner..."
 
+        SONAR_VERSION="7.2.0.5079"
 
-    # --------------------------------------------------------
-    # SonarQube Analysis
-    # --------------------------------------------------------
+        wget -q \
+          "https://binaries.sonarsource.com/Distribution/sonar-scanner-cli/sonar-scanner-cli-${SONAR_VERSION}-linux-x64.zip"
 
-    - script: |
-        export SONAR_HOST_URL="http://20.124.249.106:9000"
+        unzip -q \
+          "sonar-scanner-cli-${SONAR_VERSION}-linux-x64.zip"
 
-        $(Agent.TempDirectory)/sonar-scanner/bin/sonar-scanner \
+        export PATH="$PWD/sonar-scanner-${SONAR_VERSION}-linux-x64/bin:$PATH"
+
+        sonar-scanner \
+          -Dsonar.projectKey=Employee-Management \
+          -Dsonar.projectName=Employee-Management \
+          -Dsonar.sources=app.py,templates \
+          -Dsonar.exclusions=venv/**,**/__pycache__/** \
           -Dsonar.host.url="$SONAR_HOST_URL" \
-          -Dsonar.token="$(SONAR_TOKEN)" \
-          -Dsonar.projectKey="Employee-Management" \
-          -Dsonar.projectName="Employee-Management" \
-          -Dsonar.sources="." \
-          -Dsonar.exclusions="venv/**,**/__pycache__/**"
-      displayName: Run SonarQube Analysis
-
-      condition: "and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/main'), ne(variables['Build.Reason'], 'PullRequest'))"
-
+          -Dsonar.token="$SONAR_TOKEN"
+      displayName: SonarQube Analysis
+      env:
+        SONAR_HOST_URL: http://20.124.249.106:9000
+        SONAR_TOKEN: $(SONAR_TOKEN)
 
     # --------------------------------------------------------
-    # Install Trivy
+    # Trivy filesystem scan
     # --------------------------------------------------------
 
     - script: |
-        curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b $(Agent.TempDirectory)/trivy
+        echo "Installing Trivy..."
 
-        $(Agent.TempDirectory)/trivy/trivy --version
-      displayName: Install Trivy
+        sudo apt-get update
 
+        sudo apt-get install -y wget apt-transport-https gnupg lsb-release
 
-    # --------------------------------------------------------
-    # Trivy Filesystem Scan
-    # --------------------------------------------------------
+        wget -qO - https://aquasecurity.github.io/trivy-repo/deb/public.key \
+          | gpg --dearmor \
+          | sudo tee /usr/share/keyrings/trivy.gpg > /dev/null
 
-    - script: |
-        $(Agent.TempDirectory)/trivy/trivy filesystem \
+        echo "deb [signed-by=/usr/share/keyrings/trivy.gpg] https://aquasecurity.github.io/trivy-repo/deb $(lsb_release -sc) main" \
+          | sudo tee /etc/apt/sources.list.d/trivy.list
+
+        sudo apt-get update
+        sudo apt-get install -y trivy
+
+        trivy fs \
           --scanners vuln,misconfig,secret \
           --severity HIGH,CRITICAL \
-          --format table \
-          --exit-code 0 .
-      displayName: Run Trivy Security Scan
-
+          --exit-code 0 \
+          .
+      displayName: Trivy Filesystem Scan
 
     # --------------------------------------------------------
-    # Docker Build
+    # Docker build
     # --------------------------------------------------------
 
     - script: |
-        docker build -t employee-management:$(Build.BuildId) .
+        echo "Building Docker image..."
 
-        docker tag \
-          employee-management:$(Build.BuildId) \
-          dockerymal/employee-management:$(Build.BuildId)
-
-        docker images
+        docker build \
+          -t employee-management:$(Build.BuildId) \
+          .
       displayName: Build Docker Image
 
-
     # --------------------------------------------------------
-    # Trivy Docker Image Scan
+    # Trivy Docker image scan
     # --------------------------------------------------------
 
     - script: |
-        $(Agent.TempDirectory)/trivy/trivy image \
-          --scanners vuln,misconfig,secret \
+        echo "Scanning Docker image..."
+
+        trivy image \
           --severity HIGH,CRITICAL \
-          --format table \
           --exit-code 0 \
           employee-management:$(Build.BuildId)
-      displayName: Scan Docker Image with Trivy
-
+      displayName: Trivy Docker Image Scan
 
     # --------------------------------------------------------
-    # Push Docker Image to Docker Hub
+    # PUSH TO AZURE CONTAINER REGISTRY
     # --------------------------------------------------------
 
-    - task: Docker@2
-      displayName: Push Docker Image to Docker Hub
-
+    - task: AzureCLI@2
+      displayName: Push Docker Image to ACR
       inputs:
-        command: push
-        repository: dockerymal/employee-management
-        containerRegistry: dockerhub-employee-management
+        azureSubscription: azure-aks-wif
+        scriptType: bash
+        scriptLocation: inlineScript
+        inlineScript: |
 
-        tags: |
-          $(Build.BuildId)
+          echo "Logging into Azure Container Registry..."
+
+          az acr login \
+            --name acrdevopsshiva2026
+
+          echo "Tagging Docker image..."
+
+          docker tag \
+            employee-management:$(Build.BuildId) \
+            acrdevopsshiva2026.azurecr.io/employee-management:$(Build.BuildId)
+
+          echo "Pushing image to ACR..."
+
+          docker push \
+            acrdevopsshiva2026.azurecr.io/employee-management:$(Build.BuildId)
+
+          echo "Image pushed successfully."
+
+          echo "Image:"
+          echo "acrdevopsshiva2026.azurecr.io/employee-management:$(Build.BuildId)"
 
 
 # ============================================================
-# DEV DEPLOYMENT
+# DEV
 # ============================================================
 
 - stage: DEV
   displayName: Deploy to DEV
-
   dependsOn: Build
-
   condition: succeeded()
 
   jobs:
-  - job: DeployDEV
-    displayName: Deploy Employee Management to DEV
 
-    steps:
+  - deployment: DeployDEV
+    displayName: Deploy Employee Management to AKS DEV
+    environment: DEV
 
-    - task: SSH@0
-      displayName: Deploy to DEV
+    strategy:
+      runOnce:
+        deploy:
 
-      inputs:
-        sshEndpoint: azure-vm-dev-ssh
-        runOptions: commands
+          steps:
 
-        commands: |
-          echo "========================================="
-          echo "Deploying Employee Management to DEV"
-          echo "Build ID: $(Build.BuildId)"
-          echo "========================================="
+          - task: AzureCLI@2
+            displayName: Deploy to AKS - DEV
+            inputs:
+              azureSubscription: azure-aks-wif
+              scriptType: bash
+              scriptLocation: inlineScript
+              inlineScript: |
 
-          echo "Pulling Docker image..."
+                echo "Getting AKS credentials..."
 
-          docker pull dockerymal/employee-management:$(Build.BuildId)
+                az aks get-credentials \
+                  --resource-group rg-aks-devops-lab \
+                  --name aks-devops-lab \
+                  --overwrite-existing
 
-          echo "Removing existing DEV container if present..."
+                echo "Deploying Build $(Build.BuildId) to AKS..."
 
-          docker rm -f employee-management-dev >/dev/null 2>&1 || echo "No existing DEV container found"
+                kubectl set image \
+                  deployment/employee-management \
+                  employee-management=acrdevopsshiva2026.azurecr.io/employee-management:$(Build.BuildId)
 
-          echo "Starting DEV container..."
+                echo "Waiting for rollout..."
 
-          docker run -d --name employee-management-dev -p 5001:5000 --restart unless-stopped dockerymal/employee-management:$(Build.BuildId)
+                kubectl rollout status \
+                  deployment/employee-management \
+                  --timeout=180s
 
-          echo "DEV deployment completed."
+                echo "Deployment status:"
 
-          echo "DEV container status:"
+                kubectl get deployment employee-management
 
-          docker ps --filter name=employee-management-dev
+                echo "Pods:"
 
-          echo "========================================="
-          echo "DEV deployment successful"
-          echo "========================================="
+                kubectl get pods \
+                  -l app=employee-management
 
 
 # ============================================================
-# QA DEPLOYMENT
+# QA
 # ============================================================
 
 - stage: QA
   displayName: Deploy to QA
-
   dependsOn: DEV
-
   condition: succeeded()
 
   jobs:
-  - job: DeployQA
-    displayName: Deploy Employee Management to QA
 
-    steps:
+  - deployment: DeployQA
+    displayName: Deploy Employee Management to AKS QA
+    environment: QA
 
-    - task: SSH@0
-      displayName: Deploy to QA
+    strategy:
+      runOnce:
+        deploy:
 
-      inputs:
-        sshEndpoint: azure-vm-dev-ssh
-        runOptions: commands
+          steps:
 
-        commands: |
-          echo "========================================="
-          echo "Deploying Employee Management to QA"
-          echo "Build ID: $(Build.BuildId)"
-          echo "========================================="
+          - task: AzureCLI@2
+            displayName: Deploy to AKS - QA
+            inputs:
+              azureSubscription: azure-aks-wif
+              scriptType: bash
+              scriptLocation: inlineScript
+              inlineScript: |
 
-          echo "Pulling Docker image..."
+                echo "Getting AKS credentials..."
 
-          docker pull dockerymal/employee-management:$(Build.BuildId)
+                az aks get-credentials \
+                  --resource-group rg-aks-devops-lab \
+                  --name aks-devops-lab \
+                  --overwrite-existing
 
-          echo "Removing existing QA container if present..."
+                echo "Deploying Build $(Build.BuildId) to AKS QA..."
 
-          docker rm -f employee-management-qa >/dev/null 2>&1 || echo "No existing QA container found"
+                kubectl set image \
+                  deployment/employee-management \
+                  employee-management=acrdevopsshiva2026.azurecr.io/employee-management:$(Build.BuildId)
 
-          echo "Starting QA container..."
+                echo "Waiting for rollout..."
 
-          docker run -d --name employee-management-qa -p 5002:5000 --restart unless-stopped dockerymal/employee-management:$(Build.BuildId)
+                kubectl rollout status \
+                  deployment/employee-management \
+                  --timeout=180s
 
-          echo "QA deployment completed."
+                echo "Deployment status:"
 
-          echo "QA container status:"
+                kubectl get deployment employee-management
 
-          docker ps --filter name=employee-management-qa
+                echo "Pods:"
 
-          echo "========================================="
-          echo "QA deployment successful"
-          echo "========================================="
+                kubectl get pods \
+                  -l app=employee-management
 
 
 # ============================================================
-# PROD DEPLOYMENT
+# PROD
 # ============================================================
 
 - stage: PROD
   displayName: Deploy to PROD
-
   dependsOn: QA
-
   condition: succeeded()
 
   jobs:
 
   - deployment: DeployPROD
+    displayName: Deploy Employee Management to AKS PROD
 
-    displayName: Deploy Employee Management to PROD
+    # IMPORTANT:
+    # Keep this environment.
+    # Your PROD approval/check is attached to this environment.
 
     environment: PROD
 
     strategy:
-
       runOnce:
-
         deploy:
 
           steps:
 
-          - task: SSH@0
-            displayName: Deploy to PROD
-
+          - task: AzureCLI@2
+            displayName: Deploy to AKS - PROD
             inputs:
-              sshEndpoint: azure-vm-dev-ssh
-              runOptions: commands
+              azureSubscription: azure-aks-wif
+              scriptType: bash
+              scriptLocation: inlineScript
+              inlineScript: |
 
-              commands: |
-                echo "========================================="
-                echo "Deploying Employee Management to PROD"
-                echo "Build ID: $(Build.BuildId)"
-                echo "========================================="
+                echo "Getting AKS credentials..."
 
-                echo "Pulling Docker image..."
+                az aks get-credentials \
+                  --resource-group rg-aks-devops-lab \
+                  --name aks-devops-lab \
+                  --overwrite-existing
 
-                docker pull dockerymal/employee-management:$(Build.BuildId)
+                echo "Deploying Build $(Build.BuildId) to AKS PROD..."
 
-                echo "Removing existing PROD container if present..."
+                kubectl set image \
+                  deployment/employee-management \
+                  employee-management=acrdevopsshiva2026.azurecr.io/employee-management:$(Build.BuildId)
 
-                docker rm -f employee-management-prod >/dev/null 2>&1 || echo "No existing PROD container found"
+                echo "Waiting for rollout..."
 
-                echo "Starting PROD container..."
+                kubectl rollout status \
+                  deployment/employee-management \
+                  --timeout=180s
 
-                docker run -d --name employee-management-prod -p 5003:5000 --restart unless-stopped dockerymal/employee-management:$(Build.BuildId)
+                echo "Deployment status:"
 
-                echo "PROD deployment completed."
+                kubectl get deployment employee-management
 
-                echo "PROD container status:"
+                echo "Pods:"
 
-                docker ps --filter name=employee-management-prod
-
-                echo "========================================="
-                echo "PROD deployment successful"
-                echo "========================================="
+                kubectl get pods \
+                  -l app=employee-management
