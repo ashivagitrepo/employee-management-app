@@ -86,6 +86,7 @@ jobs:
             --namespace dev \
             --create-namespace \
             --set image.repository="${IMAGE}" \
+            --set serviceAccount.create=false \
             --set-string image.tag="${GITHUB_SHA}" \
             --wait \
             --timeout 5m
