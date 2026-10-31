@@ -1,0 +1,95 @@
+name: Employee Management GKE CI/CD
+
+on:
+  push:
+    branches:
+      - main
+      - feature/azure-devops-cicd
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  build-scan-deploy:
+    runs-on: ubuntu-latest
+    env:
+      IMAGE: ${{ vars.GAR_LOCATION }}-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/${{ vars.GAR_REPOSITORY }}/employee-management
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+
+      - name: Install dependencies and check Python syntax
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          python -m py_compile app.py
+
+      - name: Scan source with Trivy
+        uses: aquasecurity/trivy-action@0.36.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          scanners: vuln,misconfig,secret
+          severity: HIGH,CRITICAL
+          format: table
+          exit-code: "0"
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_SERVICE_ACCOUNT }}
+          create_credentials_file: true
+
+      - name: Set up Google Cloud CLI
+        uses: google-github-actions/setup-gcloud@v3
+        with:
+          project_id: ${{ vars.GCP_PROJECT_ID }}
+
+      - name: Configure Docker for Artifact Registry
+        run: gcloud auth configure-docker "${{ vars.GAR_LOCATION }}-docker.pkg.dev" --quiet
+
+      - name: Build image
+        run: docker build --tag "${IMAGE}:${GITHUB_SHA}" .
+
+      - name: Scan image with Trivy
+        uses: aquasecurity/trivy-action@0.36.0
+        with:
+          scan-type: image
+          image-ref: ${{ env.IMAGE }}:${{ github.sha }}
+          scanners: vuln,misconfig,secret
+          severity: HIGH,CRITICAL
+          format: table
+          exit-code: "0"
+
+      - name: Push image to Artifact Registry
+        run: docker push "${IMAGE}:${GITHUB_SHA}"
+
+      - name: Get GKE credentials
+        uses: google-github-actions/get-gke-credentials@v3
+        with:
+          project_id: ${{ vars.GCP_PROJECT_ID }}
+          cluster_name: ${{ vars.GKE_CLUSTER }}
+          location: ${{ vars.GKE_LOCATION }}
+
+      - name: Deploy with Helm
+        run: |
+          helm upgrade --install employee-management ./employee-management \
+            --namespace dev \
+            --create-namespace \
+            --set image.repository="${IMAGE}" \
+            --set-string image.tag="${GITHUB_SHA}" \
+            --wait \
+            --timeout 5m
+
+          kubectl rollout status deployment/employee-management \
+            --namespace dev \
+            --timeout=180s
